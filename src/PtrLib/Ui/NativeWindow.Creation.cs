@@ -342,22 +342,6 @@ public sealed partial class NativeWindow
         return rect;
     }
 
-    private static RectTransform? FindRectTemplate(Transform root)
-    {
-        var rects = root.GetComponentsInChildren<RectTransform>(true);
-        for (int i = 0; i < rects.Length; i++)
-        {
-            var rect = rects[i];
-            if (rect == null || rect.transform == root) continue;
-            if (rect.GetComponent<Graphic>() != null) continue;
-            if (rect.GetComponent<CanvasRenderer>() != null) continue;
-            if (rect.GetComponents<MonoBehaviour>().Length != 0) continue;
-            return rect;
-        }
-
-        var bcg = UiFactory.FindChild(root, "bcg");
-        return bcg != null ? bcg.GetComponent<RectTransform>() : null;
-    }
     private static EventTrigger.Entry NewTriggerEntry(EventTriggerType type)
     {
         var entry = new EventTrigger.Entry { eventID = type };
