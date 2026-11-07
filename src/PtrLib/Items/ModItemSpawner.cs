@@ -20,7 +20,6 @@ public sealed class ModItemSpawnResult
 
 public static class ModItemSpawner
 {
-    private static int _spawnSequence;
 
     public static ModItemSpawnResult Spawn(
         ComputerShop shop,
@@ -83,15 +82,25 @@ public static class ModItemSpawner
             if (!wasActive)
                 item.SetActive(true);
 
-            var originalParent = item.transform.parent;
+            var deliveryParent = item.transform.parent;
+            bool parentActive = deliveryParent != null && deliveryParent.gameObject.activeInHierarchy;
             log.Msg(
-                $"Detaching {item.name} from parent " +
-                $"{(originalParent != null ? originalParent.name : "<none>")} " +
-                $"(parentActive={(originalParent != null ? originalParent.gameObject.activeInHierarchy.ToString() : "<none>")}).");
+                $"Native delivery: parent={(deliveryParent != null ? deliveryParent.name : "<none>")}, " +
+                $"parentActive={parentActive}, position={item.transform.position}, " +
+                $"rotation={item.transform.eulerAngles}, uid={highestUid}.");
+
             item.transform.SetParent(null, true);
 
             if (items != null && highestUid >= 0 && items.Remove(highestUid))
-                log.Msg($"Removed uid={highestUid} from ComputerShop.spawnedItems so CloseShop will not destroy it.");
+                log.Msg($"Removed uid={highestUid} from ComputerShop.spawnedItems after native delivery.");
+
+            var positions = shop.spawnedItemPositions;
+            if (positions != null && highestUid >= 0 && positions.TryGetValue(highestUid, out int spawnIndex))
+            {
+                shop.FreeUpSpawnPoint(spawnIndex);
+                positions.Remove(highestUid);
+                log.Msg($"Freed native spawn slot {spawnIndex} after delivery.");
+            }
 
             var usable = item.GetComponent<UsableObject>();
             if (usable != null)
@@ -101,9 +110,6 @@ public static class ModItemSpawner
                 CoopLooseItems.Register(usable);
                 ModItemRegistry.NormalizeExisting(usable);
             }
-
-            _spawnSequence++;
-            MoveToPickupPoint(item, _spawnSequence, log);
 
             var itemRenderers = item.GetComponentsInChildren<Renderer>(true);
             var mainRenderer = itemRenderers.Length > 0 ? itemRenderers[0] : null;
@@ -143,47 +149,6 @@ public static class ModItemSpawner
         }
     }
 
-    private static void MoveToPickupPoint(GameObject item, int sequence, ModuleLog log)
-    {
-        float side = ((sequence - 1) % 4 - 1.5f) * 0.28f;
-        var player = PlayerManager.instance;
-        Transform? anchor = null;
-        if (player != null && player.vcam != null)
-            anchor = player.vcam.transform;
-        else if (player != null && player.playerGO != null)
-            anchor = player.playerGO.transform;
-
-        Vector3 drop;
-        if (anchor != null)
-        {
-            drop = anchor.position
-                + anchor.forward * 0.5f
-                + anchor.right * side;
-            drop.y -= 0.1f;
-        }
-        else
-        {
-            var camera = Camera.main;
-            if (camera == null) return;
-
-            drop = camera.transform.position
-                + camera.transform.forward * 0.8f
-                + camera.transform.right * side;
-        }
-
-        item.transform.position = drop;
-
-        var body = item.GetComponent<Rigidbody>();
-        if (body != null)
-        {
-            body.velocity = Vector3.zero;
-            body.angularVelocity = Vector3.zero;
-            body.useGravity = false;
-            body.isKinematic = true;
-        }
-
-        log.Msg($"Placed {item.name} at the player pickup point {drop}.");
-    }
 
     private static void LogShopState(ComputerShop shop, string label, ModuleLog log)
     {
