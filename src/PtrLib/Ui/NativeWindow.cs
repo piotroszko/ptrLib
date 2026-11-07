@@ -285,7 +285,12 @@ public sealed class NativeWindow
         return button;
     }
 
-    public NativeWindowRow AddRow(string title, string detail, string actionText, Action? onClick)
+    public NativeWindowRow AddRow(
+        string title,
+        string detail,
+        string actionText,
+        Action? onClick,
+        Sprite? icon = null)
     {
         var row = CreateRect(_content, "Row");
         var rowObject = row.gameObject;
@@ -309,6 +314,18 @@ public sealed class NativeWindow
 
         var element = rowObject.AddComponent<LayoutElement>();
         element.preferredHeight = 54f;
+
+        if (icon != null)
+        {
+            var iconRect = CreateRect(rowObject.transform, "Icon");
+            var iconImage = iconRect.gameObject.AddComponent<Image>();
+            iconImage.sprite = icon;
+            iconImage.preserveAspect = true;
+            iconImage.raycastTarget = false;
+            var iconLayout = iconRect.gameObject.AddComponent<LayoutElement>();
+            iconLayout.preferredWidth = 42f;
+            iconLayout.preferredHeight = 42f;
+        }
 
         var titleLabel = UiFactory.CreateText(
             rowObject.transform,
