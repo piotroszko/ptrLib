@@ -77,3 +77,21 @@ public sealed class IntSliderSetting : SettingDefinition
 
     public string FormatValue(int value) => string.Format(Format, value);
 }
+
+
+public sealed class ActionSetting : SettingDefinition
+{
+    public ActionSetting(
+        string key,
+        string label,
+        string buttonText,
+        Action apply)
+        : base(key, label)
+    {
+        ButtonText = buttonText;
+        Apply = apply ?? throw new ArgumentNullException(nameof(apply));
+    }
+
+    public string ButtonText { get; }
+    public Action Apply { get; }
+}

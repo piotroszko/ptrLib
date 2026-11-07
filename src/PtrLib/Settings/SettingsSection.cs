@@ -84,6 +84,18 @@ public sealed class SettingsSection
         return setting;
     }
 
+    public ActionSetting AddAction(
+        string key,
+        string label,
+        string buttonText,
+        Action apply)
+    {
+        EnsureUnique(key);
+        var setting = new ActionSetting(key, label, buttonText, apply);
+        _settings.Add(setting);
+        return setting;
+    }
+
     public DurationActionSetting AddDurationAction(
         string key,
         string label,
