@@ -23,9 +23,17 @@ public sealed class WindowManager
         Vector2 size,
         Vector2 anchoredPosition,
         int sortingOrder = 20,
-        bool showCloseButton = true)
+        bool showCloseButton = true,
+        string? positionKey = null)
     {
-        var window = NativeWindow.Create(name, title, size, anchoredPosition, sortingOrder, showCloseButton);
+        var window = NativeWindow.Create(
+            name,
+            title,
+            size,
+            anchoredPosition,
+            sortingOrder,
+            showCloseButton,
+            positionKey);
         if (window != null)
             _nativeWindows.Add(window);
         return window;

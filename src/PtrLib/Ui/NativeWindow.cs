@@ -4,6 +4,7 @@ using Il2Cpp;
 using Il2CppTMPro;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace PtrLib.Ui;
@@ -22,6 +23,8 @@ public sealed class NativeWindow
     private readonly TextMeshProUGUI _title;
     private readonly RectTransform _rectTemplate;
     private readonly List<GameObject> _children = new List<GameObject>();
+    private string _positionKey;
+    private bool _hasSavedPosition;
 
     private NativeWindow(
         GameObject root,
@@ -30,7 +33,8 @@ public sealed class NativeWindow
         TextMeshProUGUI title,
         TextMeshProUGUI textTemplate,
         ButtonExtended buttonTemplate,
-        RectTransform rectTemplate)
+        RectTransform rectTemplate,
+        string positionKey)
     {
         _root = root;
         _window = window;
@@ -39,12 +43,15 @@ public sealed class NativeWindow
         _textTemplate = textTemplate;
         _buttonTemplate = buttonTemplate;
         _rectTemplate = rectTemplate;
+        _positionKey = positionKey;
     }
 
     public GameObject Root => _root;
     public RectTransform WindowRect => _window;
     public RectTransform ContentRect => _content;
     public bool IsVisible => _root != null && _root.activeSelf;
+    public string PositionKey => _positionKey;
+    public bool HasSavedPosition => _hasSavedPosition;
 
     public static NativeWindow? Create(
         string name,
@@ -52,7 +59,8 @@ public sealed class NativeWindow
         Vector2 size,
         Vector2 anchoredPosition,
         int sortingOrder = 20,
-        bool showCloseButton = true)
+        bool showCloseButton = true,
+        string? positionKey = null)
     {
         var template = NativeWindowTemplate.Find();
         if (template == null)
@@ -157,10 +165,33 @@ public sealed class NativeWindow
             titleText,
             template.TextTemplate,
             template.ButtonTemplate,
-            template.RectTemplate);
+            template.RectTemplate,
+            string.IsNullOrEmpty(positionKey) ? name : positionKey);
         if (closeButton != null)
             closeButton.onClick.AddListener((UnityAction)(Action)result.Hide);
 
+        var dragRect = CreateRect(template.RectTemplate, window, "Drag Bar");
+        dragRect.anchorMin = new Vector2(0f, 1f);
+        dragRect.anchorMax = new Vector2(0f, 1f);
+        dragRect.pivot = new Vector2(0f, 1f);
+        dragRect.sizeDelta = new Vector2(Mathf.Max(40f, size.x - 80f), 46f);
+        dragRect.anchoredPosition = Vector2.zero;
+        var dragImage = dragRect.gameObject.AddComponent<Image>();
+        dragImage.color = new Color(0f, 0f, 0f, 0f);
+        dragImage.raycastTarget = true;
+        var trigger = dragRect.gameObject.AddComponent<EventTrigger>();
+        if (trigger.triggers == null)
+            trigger.triggers = new Il2CppSystem.Collections.Generic.List<EventTrigger.Entry>();
+        var dragEntry = new EventTrigger.Entry { eventID = EventTriggerType.Drag };
+        dragEntry.callback.AddListener((UnityAction<BaseEventData>)(data =>
+            DragWindow(window, data)));
+        trigger.triggers.Add(dragEntry);
+        var endEntry = new EventTrigger.Entry { eventID = EventTriggerType.EndDrag };
+        endEntry.callback.AddListener((UnityAction<BaseEventData>)(_ => result.SavePosition()));
+        trigger.triggers.Add(endEntry);
+        result._children.Add(dragRect.gameObject);
+
+        result.TryLoadSavedPosition();
         result._children.Add(separator);
         result.Show(false);
         return result;
@@ -170,6 +201,65 @@ public sealed class NativeWindow
     {
         if (_title != null)
             _title.text = title ?? string.Empty;
+    }
+
+    public void SetPositionKey(string key)
+    {
+        if (string.IsNullOrEmpty(key) || string.Equals(key, _positionKey, StringComparison.Ordinal))
+            return;
+
+        SavePosition();
+        _positionKey = key;
+        _hasSavedPosition = TryLoadSavedPosition();
+    }
+
+    internal void SavePosition()
+    {
+        if (string.IsNullOrEmpty(_positionKey) || _window == null)
+            return;
+
+        string prefix = PositionPrefix(_positionKey);
+        PlayerPrefs.SetFloat(prefix + ".x", _window.anchoredPosition.x);
+        PlayerPrefs.SetFloat(prefix + ".y", _window.anchoredPosition.y);
+        PlayerPrefs.Save();
+    }
+
+    private bool TryLoadSavedPosition()
+    {
+        if (string.IsNullOrEmpty(_positionKey) || _window == null)
+            return false;
+
+        string prefix = PositionPrefix(_positionKey);
+        if (!PlayerPrefs.HasKey(prefix + ".x") || !PlayerPrefs.HasKey(prefix + ".y"))
+            return false;
+
+        _window.anchoredPosition = ClampToParent(
+            new Vector2(
+                PlayerPrefs.GetFloat(prefix + ".x"),
+                PlayerPrefs.GetFloat(prefix + ".y")),
+            _window);
+        return true;
+    }
+
+    private static string PositionPrefix(string key) => "PtrPack.Window." + key;
+
+    internal static Vector2 ClampToParent(Vector2 position, RectTransform window)
+    {
+        var parent = window.parent as RectTransform;
+        if (parent == null)
+            return position;
+
+        float width = window.rect.width >= 1f ? window.rect.width : window.sizeDelta.x;
+        float height = window.rect.height >= 1f ? window.rect.height : window.sizeDelta.y;
+        Rect rect = parent.rect;
+        float minX = rect.xMin + width * 0.5f + 8f;
+        float maxX = rect.xMax - width * 0.5f - 8f;
+        float minY = rect.yMin + height * 0.5f + 8f;
+        float maxY = rect.yMax - height * 0.5f - 8f;
+
+        return new Vector2(
+            Mathf.Clamp(position.x, Mathf.Min(minX, maxX), Mathf.Max(minX, maxX)),
+            Mathf.Clamp(position.y, Mathf.Min(minY, maxY), Mathf.Max(minY, maxY)));
     }
 
     public void Show(bool show = true)
@@ -516,7 +606,22 @@ public sealed class NativeWindow
         var bcg = UiFactory.FindChild(root, "bcg");
         return bcg != null ? bcg.GetComponent<RectTransform>() : null;
     }
+    private static void DragWindow(RectTransform window, BaseEventData data)
+    {
+        var pointer = data.TryCast<PointerEventData>();
+        if (pointer == null || window == null)
+            return;
+
+        var canvas = window.GetComponentInParent<Canvas>();
+        float scale = canvas != null && canvas.scaleFactor > 0.0001f
+            ? canvas.scaleFactor
+            : 1f;
+        window.anchoredPosition = ClampToParent(
+            window.anchoredPosition + pointer.delta / scale,
+            window);
+    }
 }
+
 
 public sealed class NativeWindowRow
 {
