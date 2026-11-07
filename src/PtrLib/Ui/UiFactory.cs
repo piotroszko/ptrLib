@@ -80,6 +80,7 @@ public static class UiFactory
         var clone = Object.Instantiate(template, parent);
         clone.name = name;
         clone.onClick.RemoveAllListeners();
+        clone.interactable = true;
         return clone;
     }
 
@@ -124,8 +125,15 @@ public static class UiFactory
         for (int i = 0; i < labels.Length; i++)
         {
             if (labels[i] == null) continue;
-            any = true;
-            labels[i].text = text;
+            if (!any)
+            {
+                labels[i].text = text;
+                any = true;
+            }
+            else
+            {
+                labels[i].text = string.Empty;
+            }
         }
         return any;
     }

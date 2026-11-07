@@ -68,6 +68,19 @@ public sealed class NativeWindow
             canvas.sortingOrder = sortingOrder;
         }
 
+        var raycaster = root.GetComponent<GraphicRaycaster>();
+        if (raycaster == null)
+            raycaster = root.AddComponent<GraphicRaycaster>();
+        raycaster.enabled = true;
+
+        var canvasGroup = root.GetComponent<CanvasGroup>();
+        if (canvasGroup != null)
+        {
+            canvasGroup.enabled = true;
+            canvasGroup.interactable = true;
+            canvasGroup.blocksRaycasts = true;
+        }
+
         // The clone carries native configuration scripts; they must not run
         // against this stripped-down window.
         var behaviours = root.GetComponents<MonoBehaviour>();
@@ -172,82 +185,43 @@ public sealed class NativeWindow
         var parent = parentTransform != null ? parentTransform.GetComponent<RectTransform>() : null;
         if (parent == null) return;
 
-        Camera? targetCamera = GetCanvasCamera(target);
-        Camera? parentCamera = GetCanvasCamera(parentTransform!);
+        float parentScaleX = Math.Abs(parent.lossyScale.x);
+        float parentScaleY = Math.Abs(parent.lossyScale.y);
+        float targetScaleX = Math.Abs(target.lossyScale.x);
+        float targetScaleY = Math.Abs(target.lossyScale.y);
+        if (parentScaleX < 0.0001f) parentScaleX = 1f;
+        if (parentScaleY < 0.0001f) parentScaleY = 1f;
+        if (targetScaleX < 0.0001f) targetScaleX = 1f;
+        if (targetScaleY < 0.0001f) targetScaleY = 1f;
 
-        var targetCorners = new Vector3[4];
-        target.GetWorldCorners(targetCorners);
-        Vector2 targetBottomLeft = RectTransformUtility.WorldToScreenPoint(targetCamera, targetCorners[0]);
-        Vector2 targetTopLeft = RectTransformUtility.WorldToScreenPoint(targetCamera, targetCorners[1]);
-        Vector2 targetTopRight = RectTransformUtility.WorldToScreenPoint(targetCamera, targetCorners[2]);
-        Vector2 targetBottomRight = RectTransformUtility.WorldToScreenPoint(targetCamera, targetCorners[3]);
+        Vector3 targetWorldCenter = target.TransformPoint(target.rect.center);
+        Vector3 targetLocalCenter = parent.InverseTransformPoint(targetWorldCenter);
 
-        var parentCorners = new Vector3[4];
-        parent.GetWorldCorners(parentCorners);
-        Vector2 parentBottomLeft = RectTransformUtility.WorldToScreenPoint(parentCamera, parentCorners[0]);
-        Vector2 parentTopLeft = RectTransformUtility.WorldToScreenPoint(parentCamera, parentCorners[1]);
-        Vector2 parentTopRight = RectTransformUtility.WorldToScreenPoint(parentCamera, parentCorners[2]);
-        Vector2 parentBottomRight = RectTransformUtility.WorldToScreenPoint(parentCamera, parentCorners[3]);
+        float targetWidth = target.rect.width >= 1f ? target.rect.width : target.sizeDelta.x;
+        float targetHeight = target.rect.height >= 1f ? target.rect.height : target.sizeDelta.y;
+        float targetWidthLocal = targetWidth * targetScaleX / parentScaleX;
+        float targetHeightLocal = targetHeight * targetScaleY / parentScaleY;
 
-        var windowCorners = new Vector3[4];
-        _window.GetWorldCorners(windowCorners);
-        Vector2 windowBottomLeft = RectTransformUtility.WorldToScreenPoint(parentCamera, windowCorners[0]);
-        Vector2 windowTopRight = RectTransformUtility.WorldToScreenPoint(parentCamera, windowCorners[2]);
+        float width = _window.sizeDelta.x;
+        float height = _window.sizeDelta.y;
 
-        float targetLeft = Math.Min(Math.Min(targetBottomLeft.x, targetTopLeft.x),
-            Math.Min(targetTopRight.x, targetBottomRight.x));
-        float targetRight = Math.Max(Math.Max(targetBottomLeft.x, targetTopLeft.x),
-            Math.Max(targetTopRight.x, targetBottomRight.x));
-        float targetCenterY = (targetTopLeft.y + targetBottomRight.y) * 0.5f;
+        float centerX = preferLeft
+            ? targetLocalCenter.x - targetWidthLocal * 0.5f - gap - width * 0.5f
+            : targetLocalCenter.x + targetWidthLocal * 0.5f + gap + width * 0.5f;
+        float centerY = targetLocalCenter.y;
 
-        float parentLeft = Math.Min(Math.Min(parentBottomLeft.x, parentTopLeft.x),
-            Math.Min(parentTopRight.x, parentBottomRight.x));
-        float parentRight = Math.Max(Math.Max(parentBottomLeft.x, parentTopLeft.x),
-            Math.Max(parentTopRight.x, parentBottomRight.x));
-        float parentBottom = Math.Min(Math.Min(parentBottomLeft.y, parentBottomRight.y),
-            Math.Min(parentTopLeft.y, parentTopRight.y));
-        float parentTop = Math.Max(Math.Max(parentBottomLeft.y, parentBottomRight.y),
-            Math.Max(parentTopLeft.y, parentTopRight.y));
+        Rect parentRect = parent.rect;
+        float minX = parentRect.xMin + width * 0.5f + 16f;
+        float maxX = parentRect.xMax - width * 0.5f - 16f;
+        float minY = parentRect.yMin + height * 0.5f + 16f;
+        float maxY = parentRect.yMax - height * 0.5f - 16f;
 
-        float width = Math.Abs(windowTopRight.x - windowBottomLeft.x);
-        float height = Math.Abs(windowTopRight.y - windowBottomLeft.y);
-        if (width < 1f) width = _window.sizeDelta.x;
-        if (height < 1f) height = _window.sizeDelta.y;
-
-        float centerX;
-        if (preferLeft)
-            centerX = targetLeft - gap - width * 0.5f;
-        else
-        {
-            float leftSpace = targetLeft - parentLeft;
-            float rightSpace = parentRight - targetRight;
-            centerX = rightSpace > leftSpace
-                ? targetRight + gap + width * 0.5f
-                : targetLeft - gap - width * 0.5f;
-        }
-
-        float centerY = targetCenterY;
-        float minX = parentLeft + width * 0.5f + 16f;
-        float maxX = parentRight - width * 0.5f - 16f;
-        float minY = parentBottom + height * 0.5f + 16f;
-        float maxY = parentTop - height * 0.5f - 16f;
         centerX = Mathf.Clamp(centerX, Math.Min(minX, maxX), Math.Max(minX, maxX));
         centerY = Mathf.Clamp(centerY, Math.Min(minY, maxY), Math.Max(minY, maxY));
 
-        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                parent,
-                new Vector2(centerX, centerY),
-                parentCamera,
-                out Vector2 local))
-        {
-            _window.anchoredPosition = local;
-        }
-    }
-
-    private static Camera? GetCanvasCamera(Transform transform)
-    {
-        var canvas = transform.GetComponentInParent<Canvas>();
-        return canvas != null ? canvas.worldCamera : null;
+        _window.anchoredPosition = new Vector2(
+            centerX - parentRect.center.x,
+            centerY - parentRect.center.y);
     }
 
     public void Clear()
@@ -279,7 +253,19 @@ public sealed class NativeWindow
     public ButtonExtended AddButton(string text, Action onClick, float width = 110f, float height = 28f)
     {
         var button = UiFactory.CreateButton(_buttonTemplate, _content, "Button " + text);
-        UiFactory.SetButtonLabel(button, text);
+        bool hasLabel = UiFactory.SetButtonLabel(button, text);
+        if (!hasLabel)
+        {
+            var label = UiFactory.CreateText(
+                button.transform,
+                _textTemplate,
+                text,
+                14f,
+                TextAlignmentOptions.Center,
+                new Vector2(2f, 2f),
+                new Vector2(-2f, -2f));
+            label.raycastTarget = false;
+        }
 
         var element = button.gameObject.AddComponent<LayoutElement>();
         element.preferredWidth = width;
@@ -294,6 +280,16 @@ public sealed class NativeWindow
     {
         var row = CreateRect(_content, "Row");
         var rowObject = row.gameObject;
+        var rowHit = rowObject.AddComponent<Image>();
+        rowHit.color = new Color(0f, 0f, 0f, 0f);
+        rowHit.raycastTarget = true;
+        var rowButton = rowObject.AddComponent<Button>();
+        rowButton.targetGraphic = rowHit;
+        rowButton.transition = Selectable.Transition.None;
+        rowButton.interactable = true;
+        if (onClick != null)
+            rowButton.onClick.AddListener((UnityAction)onClick);
+
         var layout = rowObject.AddComponent<HorizontalLayoutGroup>();
         layout.spacing = 8f;
         layout.childControlWidth = true;
@@ -332,11 +328,23 @@ public sealed class NativeWindow
         if (!string.IsNullOrEmpty(actionText) && onClick != null)
         {
             button = UiFactory.CreateButton(_buttonTemplate, rowObject.transform, "Button " + actionText);
-            UiFactory.SetButtonLabel(button, actionText);
+            bool hasLabel = UiFactory.SetButtonLabel(button, actionText);
+            if (!hasLabel)
+            {
+                var label = UiFactory.CreateText(
+                    button.transform,
+                    _textTemplate,
+                    actionText,
+                    13f,
+                    TextAlignmentOptions.Center,
+                    new Vector2(1f, 1f),
+                    new Vector2(-1f, -1f));
+                label.raycastTarget = false;
+            }
 
             var buttonLayout = button.gameObject.AddComponent<LayoutElement>();
-            buttonLayout.preferredWidth = 54f;
-            buttonLayout.preferredHeight = 26f;
+            buttonLayout.preferredWidth = 64f;
+            buttonLayout.preferredHeight = 28f;
             button.onClick.AddListener((UnityAction)onClick);
         }
 
