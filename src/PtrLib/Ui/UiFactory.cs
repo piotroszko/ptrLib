@@ -130,4 +130,26 @@ public static class UiFactory
         }
         return any;
     }
+
+    public static void SetButtonColors(ButtonExtended button, Color background, Color foreground)
+    {
+        var image = button.image;
+        if (image != null)
+            image.color = background;
+
+        var colors = button.colors;
+        colors.normalColor = Color.white;
+        colors.highlightedColor = new Color(0.9f, 0.95f, 1f, 1f);
+        colors.pressedColor = new Color(0.72f, 0.82f, 0.92f, 1f);
+        colors.selectedColor = Color.white;
+        colors.disabledColor = new Color(0.5f, 0.5f, 0.5f, 0.5f);
+        button.colors = colors;
+
+        var labels = button.GetComponentsInChildren<TextMeshProUGUI>(true);
+        for (int i = 0; i < labels.Length; i++)
+        {
+            if (labels[i] != null)
+                labels[i].color = foreground;
+        }
+    }
 }

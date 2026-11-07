@@ -16,8 +16,7 @@ internal sealed class PcAppsModule : PtrModule
 
     public override void OnUpdate()
     {
-        if (!Context.InGameplay) return;
-
+        if (!Context.InGameplay || !PcApps.AnyRegistered) return;
         var shop = UiFactory.FindSceneComponent<ComputerShop>();
         if (shop == null || shop.mainScreen == null) return;
 
