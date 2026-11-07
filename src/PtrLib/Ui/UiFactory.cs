@@ -118,7 +118,6 @@ public static class UiFactory
         {
             if (localised[i] == null) continue;
             localised[i].enabled = false;
-            Object.Destroy(localised[i]);
         }
 
         var labels = button.GetComponentsInChildren<TextMeshProUGUI>(true);
