@@ -51,7 +51,8 @@ public sealed class NativeWindow
         string title,
         Vector2 size,
         Vector2 anchoredPosition,
-        int sortingOrder = 20)
+        int sortingOrder = 20,
+        bool showCloseButton = true)
     {
         var template = NativeWindowTemplate.Find();
         if (template == null)
@@ -132,12 +133,19 @@ public sealed class NativeWindow
             new Vector2(size.x - 96f, 38f),
             new Vector2(18f, -12f));
 
-        var close = UiFactory.CreateButton(template.ButtonTemplate, window, "Button Close");
-        UiFactory.SetTopRight(
-            close.GetComponent<RectTransform>(),
-            new Vector2(34f, 34f),
-            new Vector2(-12f, -10f));
-        UiFactory.SetButtonLabel(close, "X");
+        Button? closeButton = null;
+        if (showCloseButton)
+        {
+            var close = UiFactory.CreateButton(template.ButtonTemplate, window, "Button Close");
+            UiFactory.SetTopRight(
+                close.GetComponent<RectTransform>(),
+                new Vector2(34f, 34f),
+                new Vector2(-12f, -10f));
+            UiFactory.SetButtonLabel(close, "X");
+            closeButton = close.gameObject.AddComponent<Button>();
+            closeButton.targetGraphic = close.targetGraphic;
+            closeButton.transition = Selectable.Transition.None;
+        }
 
         var separator = CreateSeparator(template.RectTemplate, window, size.x, -54f);
 
@@ -150,7 +158,8 @@ public sealed class NativeWindow
             template.TextTemplate,
             template.ButtonTemplate,
             template.RectTemplate);
-        close.onClick.AddListener((UnityAction)(Action)result.Hide);
+        if (closeButton != null)
+            closeButton.onClick.AddListener((UnityAction)(Action)result.Hide);
 
         result._children.Add(separator);
         result.Show(false);
@@ -324,32 +333,41 @@ public sealed class NativeWindow
         detailLabel.overflowMode = TextOverflowModes.Ellipsis;
         SetLabelLayout(detailLabel, 0f, 1f, 50f);
 
-        ButtonExtended? button = null;
+        Button? actionButton = null;
         if (!string.IsNullOrEmpty(actionText) && onClick != null)
-        {
-            button = UiFactory.CreateButton(_buttonTemplate, rowObject.transform, "Button " + actionText);
-            bool hasLabel = UiFactory.SetButtonLabel(button, actionText);
-            if (!hasLabel)
-            {
-                var label = UiFactory.CreateText(
-                    button.transform,
-                    _textTemplate,
-                    actionText,
-                    13f,
-                    TextAlignmentOptions.Center,
-                    new Vector2(1f, 1f),
-                    new Vector2(-1f, -1f));
-                label.raycastTarget = false;
-            }
-
-            var buttonLayout = button.gameObject.AddComponent<LayoutElement>();
-            buttonLayout.preferredWidth = 64f;
-            buttonLayout.preferredHeight = 28f;
-            button.onClick.AddListener((UnityAction)onClick);
-        }
+            actionButton = CreateTextButton(rowObject.transform, actionText, onClick, 64f, 28f);
 
         _children.Add(rowObject);
-        return new NativeWindowRow(rowObject, titleLabel, detailLabel, button);
+        return new NativeWindowRow(rowObject, titleLabel, detailLabel, actionButton);
+    }
+
+    private Button CreateTextButton(Transform parent, string text, Action onClick, float width, float height)
+    {
+        var rect = CreateRect(_rectTemplate, parent, "Button " + text);
+        var image = rect.gameObject.AddComponent<Image>();
+        image.color = new Color(0.08f, 0.35f, 0.55f, 1f);
+        image.raycastTarget = true;
+
+        var button = rect.gameObject.AddComponent<Button>();
+        button.targetGraphic = image;
+        button.transition = Selectable.Transition.ColorTint;
+        button.interactable = true;
+        button.onClick.AddListener((UnityAction)onClick);
+
+        var label = UiFactory.CreateText(
+            rect,
+            _textTemplate,
+            text,
+            13f,
+            TextAlignmentOptions.Center,
+            new Vector2(2f, 1f),
+            new Vector2(-2f, -1f));
+        label.raycastTarget = false;
+
+        var layout = rect.gameObject.AddComponent<LayoutElement>();
+        layout.preferredWidth = width;
+        layout.preferredHeight = height;
+        return button;
     }
 
     private static void SetLabelLayout(
@@ -488,13 +506,13 @@ public sealed class NativeWindowRow
     private readonly GameObject _root;
     private readonly TextMeshProUGUI _title;
     private readonly TextMeshProUGUI _detail;
-    private readonly ButtonExtended? _button;
+    private readonly Button? _button;
 
     internal NativeWindowRow(
         GameObject root,
         TextMeshProUGUI title,
         TextMeshProUGUI detail,
-        ButtonExtended? button)
+        Button? button)
     {
         _root = root;
         _title = title;
@@ -517,7 +535,6 @@ public sealed class NativeWindowRow
         _button.gameObject.SetActive(onClick != null);
         if (onClick == null) return;
 
-        UiFactory.SetButtonLabel(_button, text);
         _button.onClick.RemoveAllListeners();
         _button.onClick.AddListener((UnityAction)onClick);
     }
