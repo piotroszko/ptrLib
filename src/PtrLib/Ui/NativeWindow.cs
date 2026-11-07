@@ -25,6 +25,15 @@ public sealed class NativeWindow
     private readonly List<GameObject> _children = new List<GameObject>();
     private string _positionKey;
     private bool _hasSavedPosition;
+    private GameObject? _viewport;
+    private GameObject? _separator;
+    private GameObject? _resizeGrip;
+    private GameObject? _scrollbar;
+    private TextMeshProUGUI? _minimizeLabel;
+    private bool _minimized;
+    private float _expandedHeight;
+    private float _currentWidth;
+    private float _currentHeight;
 
     private NativeWindow(
         GameObject root,
@@ -136,10 +145,12 @@ public sealed class NativeWindow
             TextAlignmentOptions.Left,
             Vector2.zero,
             Vector2.zero);
-        UiFactory.SetTopLeft(
-            titleText.rectTransform,
-            new Vector2(size.x - 96f, 38f),
-            new Vector2(18f, -12f));
+        var titleRect = titleText.rectTransform;
+        titleRect.anchorMin = new Vector2(0f, 1f);
+        titleRect.anchorMax = new Vector2(1f, 1f);
+        titleRect.pivot = new Vector2(0f, 1f);
+        titleRect.offsetMin = new Vector2(18f, -50f);
+        titleRect.offsetMax = new Vector2(showCloseButton ? -94f : -54f, -12f);
 
         Button? closeButton = null;
         if (showCloseButton)
@@ -158,6 +169,7 @@ public sealed class NativeWindow
         var separator = CreateSeparator(template.RectTemplate, window, size.x, -54f);
 
         var content = CreateScrollContent(template.RectTemplate, window, size);
+        var scrollbarObject = window.Find("Scrollbar");
         var result = new NativeWindow(
             root,
             window,
@@ -167,30 +179,108 @@ public sealed class NativeWindow
             template.ButtonTemplate,
             template.RectTemplate,
             string.IsNullOrEmpty(positionKey) ? name : positionKey);
+        result._scrollbar = scrollbarObject != null ? scrollbarObject.gameObject : null;
         if (closeButton != null)
             closeButton.onClick.AddListener((UnityAction)(Action)result.Hide);
 
-        var dragRect = CreateRect(template.RectTemplate, window, "Drag Bar");
-        dragRect.anchorMin = new Vector2(0f, 1f);
-        dragRect.anchorMax = new Vector2(0f, 1f);
-        dragRect.pivot = new Vector2(0f, 1f);
-        dragRect.sizeDelta = new Vector2(Mathf.Max(40f, size.x - 80f), 46f);
-        dragRect.anchoredPosition = Vector2.zero;
-        var dragImage = dragRect.gameObject.AddComponent<Image>();
-        dragImage.color = new Color(0f, 0f, 0f, 0f);
-        dragImage.raycastTarget = true;
-        var trigger = dragRect.gameObject.AddComponent<EventTrigger>();
-        if (trigger.triggers == null)
-            trigger.triggers = new Il2CppSystem.Collections.Generic.List<EventTrigger.Entry>();
-        var dragEntry = new EventTrigger.Entry { eventID = EventTriggerType.Drag };
-        dragEntry.callback.AddListener((UnityAction<BaseEventData>)(data =>
-            DragWindow(window, data)));
-        trigger.triggers.Add(dragEntry);
-        var endEntry = new EventTrigger.Entry { eventID = EventTriggerType.EndDrag };
-        endEntry.callback.AddListener((UnityAction<BaseEventData>)(_ => result.SavePosition()));
-        trigger.triggers.Add(endEntry);
-        result._children.Add(dragRect.gameObject);
+        try
+        {
+            var minimizeRect = CreateRect(template.RectTemplate, window, "Button Minimize");
+            minimizeRect.anchorMin = new Vector2(1f, 1f);
+            minimizeRect.anchorMax = new Vector2(1f, 1f);
+            minimizeRect.pivot = new Vector2(1f, 1f);
+            minimizeRect.sizeDelta = new Vector2(34f, 34f);
+            minimizeRect.anchoredPosition = new Vector2(showCloseButton ? -52f : -12f, -10f);
 
+            var minimizeImage = minimizeRect.gameObject.AddComponent<Image>();
+            minimizeImage.color = new Color(1f, 1f, 1f, 0.1f);
+            minimizeImage.raycastTarget = true;
+
+            var minimizeButton = minimizeRect.gameObject.AddComponent<Button>();
+            minimizeButton.targetGraphic = minimizeImage;
+            minimizeButton.transition = Selectable.Transition.None;
+            minimizeButton.onClick.AddListener((UnityAction)(Action)result.ToggleMinimized);
+
+            result._minimizeLabel = UiFactory.CreateText(
+                minimizeRect,
+                template.TextTemplate,
+                "-",
+                19f,
+                TextAlignmentOptions.Center,
+                Vector2.zero,
+                Vector2.zero);
+            result._minimizeLabel.raycastTarget = false;
+        }
+        catch (Exception exception)
+        {
+            UnityEngine.Debug.LogWarning($"[PtrLib] Minimize button setup failed: {exception}");
+        }
+
+        try
+        {
+            var dragRect = CreateRect(template.RectTemplate, window, "Drag Bar");
+            dragRect.anchorMin = new Vector2(0f, 1f);
+            dragRect.anchorMax = new Vector2(1f, 1f);
+            dragRect.pivot = new Vector2(0.5f, 1f);
+            dragRect.sizeDelta = new Vector2(showCloseButton ? -120f : -80f, 46f);
+            dragRect.anchoredPosition = Vector2.zero;
+            var dragImage = dragRect.gameObject.AddComponent<Image>();
+            dragImage.color = new Color(0f, 0f, 0f, 0f);
+            dragImage.raycastTarget = true;
+            var trigger = dragRect.gameObject.AddComponent<EventTrigger>();
+            if (trigger.triggers == null)
+                trigger.triggers = new Il2CppSystem.Collections.Generic.List<EventTrigger.Entry>();
+            var dragEntry = NewTriggerEntry(EventTriggerType.Drag);
+            dragEntry.callback.AddListener((UnityAction<BaseEventData>)(data =>
+            {
+                DragWindow(window, data);
+                result.StorePosition();
+            }));
+            trigger.triggers.Add(dragEntry);
+            var endEntry = NewTriggerEntry(EventTriggerType.EndDrag);
+            endEntry.callback.AddListener((UnityAction<BaseEventData>)(_ => result.SavePosition()));
+            trigger.triggers.Add(endEntry);
+            result._children.Add(dragRect.gameObject);
+        }
+        catch (Exception exception)
+        {
+            UnityEngine.Debug.LogWarning($"[PtrLib] Drag bar setup failed: {exception}");
+        }
+        try
+        {
+            var gripRect = CreateRect(template.RectTemplate, window, "Resize Grip");
+            gripRect.anchorMin = new Vector2(1f, 0f);
+            gripRect.anchorMax = new Vector2(1f, 0f);
+            gripRect.pivot = new Vector2(1f, 0f);
+            gripRect.sizeDelta = new Vector2(14f, 14f);
+            gripRect.anchoredPosition = Vector2.zero;
+            var gripImage = gripRect.gameObject.AddComponent<Image>();
+            gripImage.color = new Color(1f, 1f, 1f, 0.18f);
+            gripImage.raycastTarget = true;
+            var gripTrigger = gripRect.gameObject.AddComponent<EventTrigger>();
+            if (gripTrigger.triggers == null)
+                gripTrigger.triggers = new Il2CppSystem.Collections.Generic.List<EventTrigger.Entry>();
+            var gripDrag = NewTriggerEntry(EventTriggerType.Drag);
+            gripDrag.callback.AddListener((UnityAction<BaseEventData>)(data =>
+                result.ResizeWindow(data)));
+            gripTrigger.triggers.Add(gripDrag);
+            var gripEnd = NewTriggerEntry(EventTriggerType.EndDrag);
+            gripEnd.callback.AddListener((UnityAction<BaseEventData>)(_ => result.SavePosition()));
+            gripTrigger.triggers.Add(gripEnd);
+            gripRect.SetAsLastSibling();
+            result._resizeGrip = gripRect.gameObject;
+            result._children.Add(gripRect.gameObject);
+        }
+        catch (Exception exception)
+        {
+            UnityEngine.Debug.LogWarning($"[PtrLib] Resize grip setup failed: {exception}");
+        }
+
+        result._viewport = content.parent != null ? content.parent.gameObject : null;
+        result._separator = separator;
+        result._currentWidth = size.x;
+        result._currentHeight = size.y;
+        result._expandedHeight = size.y;
         result.TryLoadSavedPosition();
         result._children.Add(separator);
         result.Show(false);
@@ -203,11 +293,76 @@ public sealed class NativeWindow
             _title.text = title ?? string.Empty;
     }
 
+    public void ToggleMinimized() => SetMinimized(!_minimized);
+
+    public void SetMinimized(bool minimized)
+    {
+        if (_window == null || _minimized == minimized)
+            return;
+
+        if (minimized)
+        {
+            _expandedHeight = _currentHeight;
+            _currentHeight = 54f;
+            _window.sizeDelta = new Vector2(_currentWidth, _currentHeight);
+            _viewport?.SetActive(false);
+            _separator?.SetActive(false);
+            _resizeGrip?.SetActive(false);
+            _scrollbar?.SetActive(false);
+            _minimized = true;
+        }
+        else
+        {
+            _currentHeight = Mathf.Max(120f, _expandedHeight);
+            _window.sizeDelta = new Vector2(_currentWidth, _currentHeight);
+            _viewport?.SetActive(true);
+            _separator?.SetActive(true);
+            _resizeGrip?.SetActive(true);
+            _scrollbar?.SetActive(true);
+            _minimized = false;
+        }
+
+        _window.anchoredPosition = ClampToParent(_window.anchoredPosition, _window);
+
+        SavePosition();
+
+        if (_minimizeLabel != null)
+            _minimizeLabel.text = _minimized ? "+" : "-";
+    }
+
+    private void ResizeWindow(BaseEventData data)
+    {
+        if (_window == null || _minimized)
+            return;
+
+        var pointer = data.TryCast<PointerEventData>();
+        var parent = _window.parent as RectTransform;
+        if (pointer == null || parent == null)
+            return;
+
+        var canvas = _window.GetComponentInParent<Canvas>();
+        float scale = canvas != null && canvas.scaleFactor > 0.0001f
+            ? canvas.scaleFactor
+            : 1f;
+        Vector2 delta = pointer.delta / scale;
+        float maxWidth = Mathf.Max(320f, parent.rect.width - 16f);
+        float maxHeight = Mathf.Max(140f, parent.rect.height - 16f);
+        float width = Mathf.Clamp(_currentWidth + delta.x, 320f, maxWidth);
+        float height = Mathf.Clamp(_currentHeight - delta.y, 140f, maxHeight);
+        _currentWidth = width;
+        _currentHeight = height;
+        _window.sizeDelta = new Vector2(width, height);
+        _window.anchoredPosition = ClampToParent(_window.anchoredPosition, _window);
+        _expandedHeight = height;
+        StorePosition();
+    }
+
     public void SetPositionKey(string key)
     {
         if (string.IsNullOrEmpty(key) || string.Equals(key, _positionKey, StringComparison.Ordinal))
             return;
 
+        SetMinimized(false);
         SavePosition();
         _positionKey = key;
         _hasSavedPosition = TryLoadSavedPosition();
@@ -215,13 +370,20 @@ public sealed class NativeWindow
 
     internal void SavePosition()
     {
+        StorePosition();
+        PlayerPrefs.Save();
+    }
+
+    private void StorePosition()
+    {
         if (string.IsNullOrEmpty(_positionKey) || _window == null)
             return;
 
         string prefix = PositionPrefix(_positionKey);
         PlayerPrefs.SetFloat(prefix + ".x", _window.anchoredPosition.x);
         PlayerPrefs.SetFloat(prefix + ".y", _window.anchoredPosition.y);
-        PlayerPrefs.Save();
+        PlayerPrefs.SetFloat(prefix + ".w", _currentWidth);
+        PlayerPrefs.SetFloat(prefix + ".h", _minimized ? _expandedHeight : _currentHeight);
     }
 
     private bool TryLoadSavedPosition()
@@ -232,6 +394,26 @@ public sealed class NativeWindow
         string prefix = PositionPrefix(_positionKey);
         if (!PlayerPrefs.HasKey(prefix + ".x") || !PlayerPrefs.HasKey(prefix + ".y"))
             return false;
+
+        if (PlayerPrefs.HasKey(prefix + ".w") && PlayerPrefs.HasKey(prefix + ".h"))
+        {
+            float width = PlayerPrefs.GetFloat(prefix + ".w");
+            float height = PlayerPrefs.GetFloat(prefix + ".h");
+            if (width >= 100f && height >= 80f)
+            {
+                var parent = _window.parent as RectTransform;
+                if (parent != null)
+                {
+                    width = Mathf.Clamp(width, 320f, Mathf.Max(320f, parent.rect.width - 16f));
+                    height = Mathf.Clamp(height, 140f, Mathf.Max(140f, parent.rect.height - 16f));
+                }
+
+                _window.sizeDelta = new Vector2(width, height);
+                _currentWidth = width;
+                _currentHeight = height;
+                _expandedHeight = height;
+            }
+        }
 
         _window.anchoredPosition = ClampToParent(
             new Vector2(
@@ -268,10 +450,15 @@ public sealed class NativeWindow
         _root.SetActive(show);
     }
 
-    public void Hide() => Show(false);
+    public void Hide()
+    {
+        SavePosition();
+        Show(false);
+    }
 
     public void Close()
     {
+        SavePosition();
         if (_root != null)
             UnityEngine.Object.Destroy(_root);
     }
@@ -342,8 +529,7 @@ public sealed class NativeWindow
             Vector2.zero,
             Vector2.zero);
 
-        var layout = label.gameObject.AddComponent<LayoutElement>();
-        layout.preferredHeight = fontSize + 8f;
+        label.enableWordWrapping = true;
 
         _children.Add(label.gameObject);
         return label;
@@ -522,7 +708,7 @@ public sealed class NativeWindow
         viewportRect.anchorMin = Vector2.zero;
         viewportRect.anchorMax = Vector2.one;
         viewportRect.offsetMin = new Vector2(12f, 12f);
-        viewportRect.offsetMax = new Vector2(-12f, -58f);
+        viewportRect.offsetMax = new Vector2(-24f, -58f);
 
         var image = viewport.AddComponent<Image>();
         image.color = new Color(0f, 0f, 0f, 0.01f);
@@ -556,6 +742,38 @@ public sealed class NativeWindow
         fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
         scroll.content = contentRect;
+
+        var scrollbarRect = CreateRect(rectTemplate, window, "Scrollbar");
+        scrollbarRect.anchorMin = new Vector2(1f, 0f);
+        scrollbarRect.anchorMax = new Vector2(1f, 1f);
+        scrollbarRect.pivot = new Vector2(1f, 0.5f);
+        scrollbarRect.offsetMin = new Vector2(-14f, 12f);
+        scrollbarRect.offsetMax = new Vector2(-8f, -58f);
+
+        var scrollbarTrack = scrollbarRect.gameObject.AddComponent<Image>();
+        scrollbarTrack.color = new Color(1f, 1f, 1f, 0.08f);
+        scrollbarTrack.raycastTarget = true;
+
+        var handleRect = CreateRect(rectTemplate, scrollbarRect, "Handle");
+        handleRect.anchorMin = Vector2.zero;
+        handleRect.anchorMax = Vector2.one;
+        handleRect.offsetMin = Vector2.zero;
+        handleRect.offsetMax = Vector2.zero;
+
+        var handleImage = handleRect.gameObject.AddComponent<Image>();
+        handleImage.color = new Color(1f, 1f, 1f, 0.55f);
+        handleImage.raycastTarget = true;
+
+        var scrollbar = scrollbarRect.gameObject.AddComponent<Scrollbar>();
+        scrollbar.handleRect = handleRect;
+        scrollbar.targetGraphic = handleImage;
+        scrollbar.direction = Scrollbar.Direction.BottomToTop;
+        scrollbar.transition = Selectable.Transition.None;
+        scrollbar.size = 1f;
+
+        scroll.verticalScrollbar = scrollbar;
+        scroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHide;
+
         return contentRect;
     }
 
@@ -606,6 +824,14 @@ public sealed class NativeWindow
         var bcg = UiFactory.FindChild(root, "bcg");
         return bcg != null ? bcg.GetComponent<RectTransform>() : null;
     }
+    private static EventTrigger.Entry NewTriggerEntry(EventTriggerType type)
+    {
+        var entry = new EventTrigger.Entry { eventID = type };
+        if (entry.callback == null)
+            entry.callback = new EventTrigger.TriggerEvent();
+        return entry;
+    }
+
     private static void DragWindow(RectTransform window, BaseEventData data)
     {
         var pointer = data.TryCast<PointerEventData>();
