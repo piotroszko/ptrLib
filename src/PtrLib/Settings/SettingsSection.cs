@@ -18,6 +18,8 @@ public sealed class SettingsSection
         _onChanged = onChanged;
     }
 
+    public event Action? Changed;
+
     public string Id { get; }
     public string Title { get; }
     public IReadOnlyList<SettingDefinition> Settings => _settings;
@@ -36,7 +38,7 @@ public sealed class SettingsSection
             entry,
             value =>
             {
-                _onChanged();
+                NotifyChanged();
                 changed?.Invoke(value);
             });
         _settings.Add(setting);
@@ -63,7 +65,7 @@ public sealed class SettingsSection
         if (clamped != entry.Value)
         {
             entry.Value = clamped;
-            _onChanged();
+            NotifyChanged();
         }
 
         var setting = new IntSliderSetting(
@@ -75,7 +77,7 @@ public sealed class SettingsSection
             format,
             value =>
             {
-                _onChanged();
+                NotifyChanged();
                 changed?.Invoke(value);
             });
         _settings.Add(setting);
@@ -108,6 +110,12 @@ public sealed class SettingsSection
             apply);
         _settings.Add(setting);
         return setting;
+    }
+
+    private void NotifyChanged()
+    {
+        _onChanged();
+        Changed?.Invoke();
     }
 
     private void EnsureUnique(string key)

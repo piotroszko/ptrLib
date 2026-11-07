@@ -38,6 +38,7 @@ public sealed class ModSettings
     {
         if (section == null) return;
         if (_sections.Contains(section)) return;
+        section.Changed += MarkDirty;
         _sections.Add(section);
     }
 }
