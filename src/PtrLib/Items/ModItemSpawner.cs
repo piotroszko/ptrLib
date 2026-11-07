@@ -138,7 +138,7 @@ public static class ModItemSpawner
 
             return new ModItemSpawnResult(
                 item,
-                $"Bought {definition.Label}. It is floating in front of you.");
+                $"Bought {definition.Label}. It was delivered to the delivery area.");
         }
         catch (Exception exception)
         {
