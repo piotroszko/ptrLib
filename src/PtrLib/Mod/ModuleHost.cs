@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using MelonLoader;
 using PtrLib.Diagnostics;
 using PtrLib.Game;
+using PtrLib.PcApps;
 using PtrLib.Settings;
 using PtrLib.Ui;
 
@@ -24,6 +25,8 @@ public sealed class ModuleHost
         _modName = modName;
         _logger = logger;
         _windows = windows;
+
+        Register(new PcAppsModule());
     }
 
     public void Register(PtrModule module)
